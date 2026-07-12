@@ -1,0 +1,66 @@
+name: "dbt_project"
+version: "1.0.0"
+config-version: 2
+profile: "econ_database"
+
+# Directory configurations
+model-paths: ["models"]
+analysis-paths: ["analyses"]
+test-paths: ["tests"]
+seed-paths: ["seeds"]
+macro-paths: ["macros"]
+snapshot-paths: ["snapshots"]
+
+target-path: "target"
+clean-targets:
+    - "target"
+    - "dbt_packages"
+
+# Model configurations
+# Schema values map to BigQuery datasets. generate_schema_name appends
+# environment suffixes for dev and staging targets while leaving prod canonical.
+models:
+  dbt_project_evaluator:
+    +enabled: "{{ var('enable_dbt_project_evaluator', false) }}"
+  dbt_project:
+    +materialized: table
+    staging:
+      +schema: economics_staging
+      +materialized: view
+      corporate_actions:
+        +enabled: "{{ var('enable_legacy_staging_alias_models', false) }}"
+      split_adjusted_prices:
+        +enabled: "{{ var('enable_legacy_staging_alias_models', false) }}"
+    markets:
+      +schema: economics_marts
+      +materialized: table
+      major_indicies_summary:
+        +enabled: "{{ var('enable_legacy_misspelled_market_models', false) }}"
+      major_indicies_analysis_return:
+        +enabled: "{{ var('enable_legacy_misspelled_market_models', false) }}"
+    commodities:
+      +schema: economics_marts
+      +materialized: table
+    government:
+      +schema: economics_marts
+      +materialized: table
+    signals:
+      +schema: economics_signals
+      +materialized: table
+    semantic_layer:
+      +schema: economics_marts
+      +materialized: table
+    agents_preprocess:
+      +schema: economics_analysis
+      +materialized: view
+    data_quality:
+      +schema: economics_staging
+      +materialized: table
+    analysis:
+      +schema: economics_analysis
+      +materialized: table
+    backtesting:
+      +schema: economics_backtesting
+      +materialized: incremental
+      +file_format: iceberg
+      +catalog: iceberg_catalog

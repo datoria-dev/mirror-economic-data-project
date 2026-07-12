@@ -1,0 +1,123 @@
+name: Dagster CI
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - ".github/workflows/dagster-ci.yml"
+      - "macro_agents/**"
+      - "dbt_project/**"
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - ".github/workflows/dagster-ci.yml"
+      - "macro_agents/**"
+      - "dbt_project/**"
+
+jobs:
+  test:
+    name: Test Dagster
+    runs-on: ubuntu-latest
+    env:
+      DBT_PLATFORM_ACCOUNT_ID: ${{ secrets.DBT_PLATFORM_ACCOUNT_ID }}
+      DBT_PLATFORM_PROJECT_ID: ${{ secrets.DBT_PLATFORM_PROJECT_ID }}
+      DBT_PLATFORM_ENVIRONMENT_ID: ${{ secrets.DBT_PLATFORM_ENVIRONMENT_ID }}
+      DBT_PLATFORM_TOKEN: ${{ secrets.DBT_PLATFORM_TOKEN }}
+      DBT_PLATFORM_ACCESS_URL: ${{ vars.DBT_PLATFORM_ACCESS_URL || 'https://cloud.getdbt.com' }}
+      DBT_PLATFORM_ADHOC_JOB_NAME: ${{ vars.DBT_PLATFORM_ADHOC_JOB_NAME || 'economic-data-dagster-ci' }}
+
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5
+        with:
+          python-version: "3.11"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e  # v6
+        with:
+          version: "latest"
+
+      - name: Cache uv dependencies
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5
+        with:
+          path: ~/.cache/uv
+          key: ${{ runner.os }}-uv-dagster-${{ hashFiles('macro_agents/pyproject.toml', 'macro_agents/uv.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-uv-dagster-
+
+      - name: Install dependencies with uv
+        run: |
+          cd macro_agents
+          uv sync --extra dev
+
+      - name: Cache dbt packages
+        id: cache-dbt-packages
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5
+        with:
+          path: dbt_project/dbt_packages
+          key: ${{ runner.os }}-dbt-packages-${{ hashFiles('dbt_project/package-lock.yml') }}
+
+      - name: Install dbt packages
+        if: steps.cache-dbt-packages.outputs.cache-hit != 'true'
+        env:
+          BIGQUERY_PROJECT: econ-data-project-478800
+          DBT_SEND_ANONYMOUS_USAGE_STATS: "false"
+        run: |
+          cd macro_agents
+          uv run dbt deps --project-dir ../dbt_project --profiles-dir ../dbt_project --target dev --no-send-anonymous-usage-stats
+
+      - name: Prepare dbt manifest offline
+        env:
+          BIGQUERY_PROJECT: econ-data-project-478800
+          DBT_SEND_ANONYMOUS_USAGE_STATS: "false"
+        run: |
+          cd macro_agents
+          uv run dbt parse --project-dir ../dbt_project --profiles-dir ../dbt_project --target dev --no-send-anonymous-usage-stats
+
+      - name: Lint with ruff
+        run: |
+          cd macro_agents
+          uv run ruff check . --exclude .claude
+          uv run ruff format --check . --exclude .claude
+
+      - name: Typecheck with ty
+        run: |
+          cd macro_agents
+          uv run ty check --extra-search-path src src/macro_agents
+
+      - name: Lint dbt SQL with SQLFluff
+        run: |
+          cd macro_agents
+          # The preceding dbt parse validates dbt templating; Jinja mode keeps style lint credential-free.
+          uv run sqlfluff lint ../dbt_project/models --templater jinja --ignore templating,parsing --disable-progress-bar --processes 4
+
+      - name: Test Dagster definitions with dbt Platform
+        if: ${{ env.DBT_PLATFORM_TOKEN != '' }}
+        env:
+          BIGQUERY_PROJECT: econ-data-project-478800
+          DBT_ORCHESTRATION_MODE: dbt_platform
+        run: |
+          cd macro_agents
+          uv run dg check defs
+
+      - name: Test Dagster definitions with local dbt fallback
+        if: ${{ env.DBT_PLATFORM_TOKEN == '' }}
+        env:
+          BIGQUERY_PROJECT: econ-data-project-478800
+          DBT_ORCHESTRATION_MODE: local
+        run: |
+          echo "DBT_PLATFORM_TOKEN is not configured; using local dbt parse fallback."
+          cd macro_agents
+          uv run dg check defs
+
+      - name: Test with pytest
+        run: |
+          cd macro_agents
+          uv run pytest tests/ -v -m "not skip_ci and not network"
+
+      - name: Enforce critical-path coverage floor
+        run: |
+          cd macro_agents
+          uv run pytest tests/test_bigquery_warehouse.py tests/test_asset_check_failure_sensor.py tests/test_sec_search.py --cov --cov-report=term-missing

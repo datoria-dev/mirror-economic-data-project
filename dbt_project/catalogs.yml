@@ -1,0 +1,9 @@
+catalogs:
+  - name: iceberg_catalog
+    active_write_integration: biglake
+    write_integrations:
+      - name: biglake
+        catalog_type: biglake_metastore
+        table_format: iceberg
+        file_format: parquet
+        external_volume: "gs://{{ env_var('ICEBERG_BUCKET_NAME', 'econ-project-iceberg-data') }}"

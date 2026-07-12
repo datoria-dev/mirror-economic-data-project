@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "dbt_index": {
+      "command": "dbt-index",
+      "args": [
+        "--auto-reingest",
+        "serve"
+      ]
+    }
+  }
+}

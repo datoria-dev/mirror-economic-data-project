@@ -1,0 +1,41 @@
+econ_database:
+  target: "{{ env_var('DBT_TARGET', 'dev') }}"
+  outputs:
+    dev:
+      type: bigquery
+      # ADC-backed auth. Locally run `gcloud auth application-default login`;
+      # deployed environments should use an attached or federated service account.
+      method: oauth
+      project: "{{ env_var('BIGQUERY_PROJECT', env_var('BIGQUERY_PROJECT_ID', 'econ-data-project-478800')) }}"
+      # Base dataset for unconfigured resources. generate_schema_name appends
+      # _dev for dev targets, so this resolves to economics_staging_dev.
+      dataset: economics_staging
+      threads: 4
+      location: "{{ env_var('BIGQUERY_LOCATION', 'US') }}"
+      timeout_seconds: 300
+
+    staging:
+      type: bigquery
+      # ADC-backed auth. Locally run `gcloud auth application-default login`;
+      # deployed environments should use an attached or federated service account.
+      method: oauth
+      project: "{{ env_var('BIGQUERY_PROJECT', env_var('BIGQUERY_PROJECT_ID', 'econ-data-project-478800')) }}"
+      # Base dataset for unconfigured resources. generate_schema_name appends
+      # _staging for staging targets, so this resolves to economics_staging_staging.
+      dataset: economics_staging
+      threads: 6
+      location: "{{ env_var('BIGQUERY_LOCATION', 'US') }}"
+      timeout_seconds: 300
+
+    prod:
+      type: bigquery
+      # ADC-backed auth. On GCE, ADC automatically uses the attached VM service
+      # account — no keyfile needed. Ensure the service account has
+      # bigquery.dataEditor and bigquery.jobUser on the project.
+      method: oauth
+      project: "{{ env_var('BIGQUERY_PROJECT', env_var('BIGQUERY_PROJECT_ID', 'econ-data-project-478800')) }}"
+      # Models land in canonical datasets: economics_staging, economics_marts, etc.
+      dataset: economics_staging
+      threads: 8
+      location: "{{ env_var('BIGQUERY_LOCATION', 'US') }}"
+      timeout_seconds: 300
